@@ -49,12 +49,34 @@ fi
 patch_file="$(mktemp "${TMPDIR:-/tmp}/factory-proof.XXXXXX.patch")"
 reverted=0
 
+# Put the reverted files back exactly as HEAD has them. Restoring through git (rather than
+# re-applying the patch) runs the checkout filters, so line endings match what
+# core.autocrlf expects and `git status` is clean afterwards. The tree was clean before
+# the revert, so HEAD is the correct state for every touched path.
+restore_tree() {
+  local path in_head=() not_in_head=()
+  for path in "${non_test_files[@]}"; do
+    if git cat-file -e "HEAD:$path" 2>/dev/null; then
+      in_head+=("$path")
+    else
+      not_in_head+=("$path")
+    fi
+  done
+  if [ "${#in_head[@]}" -gt 0 ]; then
+    git checkout HEAD -- "${in_head[@]}" || return 1
+  fi
+  if [ "${#not_in_head[@]}" -gt 0 ]; then
+    rm -f -- "${not_in_head[@]}" || return 1
+  fi
+}
+
 restore() {
-  if [ "$reverted" -eq 1 ] && [ -s "$patch_file" ]; then
-    git apply "$patch_file" >/dev/null 2>&1 || {
+  if [ "$reverted" -eq 1 ]; then
+    restore_tree >/dev/null 2>&1 || {
       echo "PROOF: restore failed; patch retained at $patch_file" >&2
       return
     }
+    reverted=0
   fi
   rm -f "$patch_file"
 }
@@ -96,7 +118,7 @@ set +e
 test_status=$?
 set -e
 
-git apply "$patch_file"
+restore_tree
 reverted=0
 
 if [ "$test_status" -eq 0 ]; then

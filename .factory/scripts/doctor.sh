@@ -53,11 +53,16 @@ fi
 
 if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
   pass "GitHub CLI authenticated"
-  missing_labels=0
-  for label in factory:ready-to-implement factory:ready-to-spec factory:needs-info factory:wait-to-implement factory:in-progress factory:awaiting-review; do
-    gh label view "$label" >/dev/null 2>&1 || missing_labels=$((missing_labels + 1))
-  done
-  [ "$missing_labels" -eq 0 ] && pass "live queue labels exist" || warn "$missing_labels live queue labels missing; run ./.factory/scripts/bootstrap-github.sh --apply"
+  # `gh label` has no `view` subcommand, so list every label once and match locally.
+  if existing_labels="$(gh label list --limit 200 --json name -q '.[].name' 2>/dev/null)"; then
+    missing_labels=0
+    for label in factory:ready-to-implement factory:ready-to-spec factory:needs-info factory:wait-to-implement factory:in-progress factory:awaiting-review; do
+      printf '%s\n' "$existing_labels" | tr -d '\r' | grep -qxF -- "$label" || missing_labels=$((missing_labels + 1))
+    done
+    [ "$missing_labels" -eq 0 ] && pass "live queue labels exist" || warn "$missing_labels live queue labels missing; run ./.factory/scripts/bootstrap-github.sh --apply"
+  else
+    warn "could not list GitHub labels; live queue label check skipped"
+  fi
 else
   warn "gh is unavailable or unauthenticated; live queue checks skipped"
 fi
